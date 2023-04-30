@@ -1,0 +1,303 @@
+---
+title: "Assignment 5"
+output: pdf_document
+latex_engine: xelatex
+header-includes:
+- \usepackage{blkarray}
+- \usepackage{amsmath}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(tidyverse)
+library(ggplot2)
+library(rsample)
+library(smotefamily)
+library(skimr)
+library(GGally)
+library(dplyr)
+library(caret)
+library(MASS)
+library(car)
+library(glmnet)
+```
+
+Logistic regression: Predicting a Legendary Pokemon
+
+```{r}
+rm(list=ls())
+poke_data <- read.csv("pokemon_merged.csv")
+head(poke_data)
+```
+
+The merged dataset contains duplicate columns, drop duplicate columns
+```{r}
+num_cols = c('Generation', 'HP','Attack','Defense','Sp..Atk', 
+             'Sp..Def','height','weight','Speed','stamina')
+cat_cols = c('Type.1','Type.2','pokemon_family','wild_avail',
+             'egg_avail','category','research_avail','region')
+bool_cols = c('Legendary', 'shiny','shadow')
+
+df_num_cols <- poke_data %>% dplyr::select(all_of(num_cols))
+df_cat_cols <- poke_data %>% dplyr::select(all_of(cat_cols))
+df_bool_cols <- poke_data %>% dplyr::select(all_of(bool_cols))
+poke_clean <- cbind(Name = poke_data$Name, df_num_cols, df_cat_cols, df_bool_cols)
+
+poke_clean[,bool_cols[2:3]] = lapply(poke_clean[,bool_cols[2:3]], 
+                                     function(x) ifelse(x == 'No', FALSE, TRUE))
+poke_clean[,bool_cols] = poke_clean[,bool_cols] %>% mutate_all(as.logical)
+poke_clean[,cat_cols] = poke_clean[,cat_cols] %>% mutate_all(as.factor)
+
+poke_clean$height = as.numeric(gsub(" (.*)$", "", poke_clean$height))
+poke_clean$weight = as.numeric(gsub(" (.*)$", "", poke_clean$weight))
+
+poke_clean$shiny <- as.factor(poke_clean$shiny)
+poke_clean$shadow <- as.factor(poke_clean$shadow)
+poke_clean$Legendary <- as.numeric(poke_clean$Legendary)
+head(poke_clean)
+```
+
+```{r}
+bin_counts <- poke_clean %>%
+  count(Legendary) %>%
+  mutate(percentage = n / sum(n) * 100)
+bin_counts 
+
+
+#legendary_plot <- ggplot(data = poke_clean, aes(x = Legendary)) +
+#  geom_histogram(binwidth = 1, color = "black", fill = "dodgerblue", 
+#                 alpha = 0.8, aes(y = ..count.. / sum(..count..) * 100)) +
+#  geom_text(data = bin_counts, aes(label = paste0(round(percentage, 1), "%"), 
+#                                   y = percentage, x = Legendary), vjust = -0.5) +
+#  labs(title = "Histogram of Legendary Pokémon", x = "Legendary", y = "Percentage") +
+#  theme_minimal() 
+#
+#legendary_plot
+```
+imbalance dataset, and baseline accuracy is 94.7%
+
+logit plot
+```{r}
+# Create a logistic plot for each variable
+colnames(poke_clean)
+variables <- c("Attack", "Defense", "Sp..Atk", "Sp..Def", "Speed","Generation","HP","height","weight")
+
+for (var in variables) {
+  plot <- ggplot(poke_clean, aes_string(x = var, y = "Legendary")) +
+    geom_point() +
+    stat_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE) +
+    labs(title = paste("Logistic Regression Plot of", var, "vs Legendary"),
+         x = var,
+         y = "Legendary (Probability)") +
+    theme_minimal()
+
+  print(plot)
+}
+
+```
+
+```{r}
+variables <- c("Attack", "Defense", "Sp..Atk", "Sp..Def", "Speed", "Generation", "HP", "height", "weight", "stamina")
+
+for (var1 in variables) {
+  for (var2 in variables) {
+    if (var1 != var2) {
+      plot <- ggplot(poke_clean, aes_string(x = var1, y = "Legendary", color = var2)) +
+        geom_point() +
+        stat_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE, aes_string(color = var2)) +
+        scale_color_gradient(low = "blue", high = "red") +
+        labs(title = paste("Logistic Regression Plot of", var1, "and", var2, "vs Legendary"),
+             x = var1,
+             y = "Legendary (Probability)",
+             color = var2) +
+        theme_minimal()
+
+      print(plot)
+    }
+  }
+}
+
+
+```
+
+```{r}
+selected_vars <- c("Attack", "Defense", "Sp..Atk", "Sp..Def", "Speed","Generation","HP","height","weight", "Legendary")
+train_set_selected <- poke_clean[, selected_vars]
+
+# Convert the 'Legendary' variable to a factor
+train_set_selected$Legendary <- as.factor(train_set_selected$Legendary)
+
+plot <- ggpairs(train_set_selected,
+                columns = 1:9,
+                mapping = aes(color = Legendary),
+                lower = list(continuous = wrap("points", alpha = 0.5)),
+                diag = list(continuous = wrap("barDiag", alpha = 0.5)),
+                upper = list(continuous = wrap("cor", size = 3))) +
+  theme_minimal()
+
+print(plot)
+
+```
+
+
+
+Based on the EDA part, choose the most related variable to Legendary
+check multicollinearity
+```{r}
+poke_linear <- dplyr::select(poke_clean,Generation, HP, Attack, Defense, Sp..Atk, Sp..Def, height, weight, Speed, stamina, Legendary, Type.1,Type.2,shiny,shadow)
+linear_model <- lm(Legendary ~ ., data = poke_linear)
+vif_values <- vif(linear_model)
+vif_values
+```
+From Generalized Variance Inflation Factor (GVIF), HP and stamina have high multicollinearity.
+
+```{r}
+poke_linear <- dplyr::select(poke_clean,Generation, HP, Attack, Defense, Sp..Atk, Sp..Def, height, weight, Speed, stamina, Legendary, Type.1,Type.2,shiny,shadow)
+poke_clean <- dplyr::select(poke_linear, - stamina)
+```
+
+```{r}
+#class_0 <- sum(poke_clean$Legendary == 1)
+#class_1 <- sum(poke_clean$Legendary == 0)
+#TN <- 0
+#FP <- class_0
+#cat("Class 0:", class_0, "\n")
+#FN <- 0
+#TP <- class_1
+#cat("Class 1:", class_1, "\n")
+#p <- TP / (TP + FP)
+#r <- TP / (TP + FN)
+#baseline_f1 <- (2 * p * r) / (p + r)
+#
+#baseline_f1
+#
+```
+
+
+
+
+```{r}
+set.seed(39)
+folds <- createFolds(poke_clean$Legendary, k = 5, list = TRUE, returnTrain = FALSE)
+
+perform_glm <- function(train_data, test_data) {
+  glm_model <- glm(Legendary ~ ., data = train_data, family = binomial(link = 'logit'), control = list(maxit = 50))
+  preds <- predict(glm_model, newdata = test_data, type = "response")
+  pred_class <- ifelse(preds >= 0.5, 1, 0)
+  accuracy <- mean(pred_class == test_data$Legendary)
+  aic <- AIC(glm_model)
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(test_data$Legendary))
+  
+  return(list(model = glm_model, accuracy = accuracy, aic = aic, cm = cm))
+}
+
+cv_results <- lapply(folds, function(test_idx) {
+  train_data <- poke_clean[-test_idx, ]
+  test_data <- poke_clean[test_idx, ]
+  perform_glm(train_data, test_data)
+})
+
+best_model_idx <- which.max(sapply(cv_results, function(x) x$accuracy))
+best_model <- cv_results[[best_model_idx]]$model
+best_accuracy <- cv_results[[best_model_idx]]$accuracy
+
+cat("The best model is:\n")
+print(summary(best_model))
+
+cat("\nThe accuracy of the best model is:", best_accuracy)
+
+```
+
+
+```{r}
+set.seed(39)
+folds <- createFolds(poke_clean$Legendary, k = 5, list = TRUE, returnTrain = FALSE)
+
+perform_glm <- function(train_data, test_data) {
+  glm_model <- glm(Legendary ~ ., data = train_data, family = binomial(link = 'logit'), control = list(maxit = 50))
+  preds <- predict(glm_model, newdata = test_data, type = "response")
+  pred_class <- ifelse(preds >= 0.5, 1, 0)
+  accuracy <- mean(pred_class == test_data$Legendary)
+  aic <- AIC(glm_model)
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(test_data$Legendary))
+  
+  return(list(accuracy = accuracy, aic = aic, cm = cm))
+}
+
+
+
+cv_results <- lapply(folds, function(test_idx) {
+  train_data <- poke_clean[-test_idx, ]
+  test_data <- poke_clean[test_idx, ]
+  perform_glm(train_data, test_data)
+})
+
+best_model_idx <- which.max(sapply(cv_results, function(x) x$accuracy))
+best_model <- cv_results[[best_model_idx]]
+
+cat("The best model is:\n")
+print(best_model)
+cat("\nThe accuracy is:", best_model$accuracy)
+cat("\nConfusion matrix for the best model:\n")
+print(best_model$cm$table)
+
+# Printing the misclassified data
+train_data <- poke_clean[-folds[[best_model_idx]], ]
+test_data <- poke_clean[folds[[best_model_idx]], ]
+glm_model <- glm(Legendary ~ ., data = train_data, family = binomial(link = 'logit'), control = list(maxit = 50))
+preds <- predict(glm_model, newdata = test_data, type = "response")
+pred_class <- ifelse(preds >= 0.5, 1, 0)
+
+misclassified <- test_data[pred_class != test_data$Legendary, ]
+misclassified_as_legendary <- misclassified[misclassified$Legendary == 0, ]
+misclassified_as_not_legendary <- misclassified[misclassified$Legendary == 1, ]
+
+cat("\nData misclassified as 'Legendary':\n")
+print(misclassified_as_legendary)
+
+cat("\nData misclassified as 'Not Legendary':\n")
+print(misclassified_as_not_legendary)
+```
+
+```{r}
+library(ggplot2)
+
+# Convert the confusion matrix to a data frame
+confusion_matrix_df <- as.data.frame(best_model$cm$table)
+
+# Add column names for ggplot
+colnames(confusion_matrix_df) <- c("Reference", "Prediction", "Frequency")
+
+# Plot the heatmap of the confusion matrix
+ggplot(data = confusion_matrix_df, aes(x = Prediction, y = Reference, fill = Frequency)) +
+  geom_tile() +
+  geom_text(aes(label = Frequency), color = "white", size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Reference",
+       y = "Prediction",
+       fill = "Frequency") +
+  theme_minimal()
+
+```
+
+
+```{r}
+print(poke_data[139,])
+print(poke_data[149,])
+print(poke_data[390,])
+print(poke_data[631,])
+```
+
+
+
+
+
+
+
+
+
+
+
