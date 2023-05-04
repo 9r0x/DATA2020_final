@@ -1,0 +1,138 @@
+---
+title: "DATA2020 Final Project EDA"
+output: html_notebook
+---
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggimage)
+```
+
+```{r}
+#read in data
+pokemon <- read.csv("pokemon_merged.csv")
+pokemon
+```
+
+```{r}
+ggplot(pokemon, aes(x = Attack, y = Defense, color = Legendary, shape = Legendary, image=pic_url)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = c("#FFE221", "#C97312")) +
+  scale_shape_manual(values = c("x", "o")) +
+  theme_minimal() +
+  labs(x = "Attack", y = "Defense") +
+  guides(color = FALSE, shape = FALSE)+
+  theme(axis.text.x = element_text(color = "gray"),
+        axis.text.y = element_text(color = "gray"))
+
+
+```
+```{r}
+# Load the ggplot2 package
+library(ggplot2)
+
+# Filter out legendary Pokémon
+non_legendary_pokemon <- pokemon[pokemon$Legendary == "False",]
+
+ggplot(non_legendary_pokemon, aes(x = Attack, y = Defense, color = Legendary, shape = Legendary)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = c("#FFE221")) +
+  scale_shape_manual(values = c("x")) +
+  theme_minimal() +
+  labs(x = "Attack", y = "Defense") +
+  guides(color = FALSE, shape = FALSE) +
+  theme(axis.text.x = element_text(color = "gray"),
+        axis.text.y = element_text(color = "gray"))
+
+```
+
+
+```{r}
+# find the pokemon with lowest both attack and defense
+# Find the index of the Pokemon with the lowest attack and defense
+# Find the index of the Pokemon with the highest and lowest attack and defense
+highest_attack_index <- which.max(pokemon$Attack)
+lowest_attack_index <- which.min(pokemon$Attack)
+highest_defense_index <- which.max(pokemon$Defense)
+lowest_defense_index <- which.min(pokemon$Defense)
+
+# Get the names of the Pokemon with the highest and lowest attack and defense
+highest_attack_name <- pokemon[highest_attack_index, 'Name']
+lowest_attack_name <- pokemon[lowest_attack_index, 'Name']
+highest_defense_name <- pokemon[highest_defense_index, 'Name']
+lowest_defense_name <- pokemon[lowest_defense_index, 'Name']
+
+cat(paste("The Pokemon with the highest attack is", highest_attack_name, "with an attack value of", pokemon[highest_attack_index, 'Attack'], "\n"))
+cat(paste("The Pokemon with the lowest attack is", lowest_attack_name, "with an attack value of", pokemon[lowest_attack_index, 'Attack'], "\n"))
+cat(paste("The Pokemon with the highest defense is", highest_defense_name, "with a defense value of", pokemon[highest_defense_index, 'Defense'], "\n"))
+cat(paste("The Pokemon with the lowest defense is", lowest_defense_name, "with a defense value of", pokemon[lowest_defense_index, 'Defense'], "\n"))
+
+```
+
+```{r}
+high_attack_pokemon <- subset(pokemon, Attack >= 150)
+print(high_attack_pokemon)
+```
+
+
+```{r}
+# average flee rate by region
+
+# Replace empty strings with "0%", remove the percentage sign, and convert the flee_rate and capture_rate columns to numeric values
+pokemon$flee_rate <- as.numeric(gsub("%", "", ifelse(pokemon$flee_rate == "", "0%", pokemon$flee_rate)))
+pokemon$capture_rate <- as.numeric(gsub("%", "", ifelse(pokemon$capture_rate == "", "0%", pokemon$capture_rate)))
+
+# Calculate the average flee_rate and capture_rate by region
+average_rates <- pokemon %>%
+  group_by(region) %>%
+  summarise(
+    avg_flee_rate = mean(flee_rate, na.rm = TRUE),
+    avg_capture_rate = mean(capture_rate, na.rm = TRUE)
+  )
+
+# Print the results
+print(average_rates)
+
+
+
+```
+```{r}
+pokemon$flee_rate
+```
+
+
+```{r}
+# Load the dplyr package
+library(dplyr)
+
+# Convert the Legendary column to logical values
+pokemon_data$Legendary <- pokemon$Legendary == "True"
+
+# Calculate the legendary rate by region
+legendary_rate <- pokemon_data %>%
+  group_by(region) %>%
+  summarise(
+    total_pokemon = n(),
+    legendary_pokemon = sum(Legendary, na.rm = TRUE)
+  ) %>%
+  mutate(
+    legendary_rate = (legendary_pokemon / total_pokemon) * 100
+  )
+
+# Print the results
+print(legendary_rate)
+
+
+
+```
+```{r}
+# Check the summary of the dataset
+summary(pokemon_data)
+
+
+```
+
+```{r}
+pokemon$Legendary=="True"
+```
+
